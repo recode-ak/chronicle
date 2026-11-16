@@ -1,7 +1,7 @@
 {
   "name": "chronicle-pi",
   "version": "0.1.0",
-  "description": "Интеграция pi с chronicle: /finish и скил recall",
+  "description": "Интеграция pi с chronicle: итог при завершении сессии и скил recall",
   "keywords": [
     "pi-package"
   ],

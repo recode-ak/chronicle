@@ -76,7 +76,7 @@ cd <chronicle> && bun run link   # chronicle → ~/.local/bin (должен бы
 
 ## 4. pi
 
-В `~/.pi/agent/settings.json` → `packages`: добавить `<chronicle>/integrations/pi` (абсолютный путь или относительно `~/.pi/agent`). Пакет даёт `/finish` (итог и новая сессия; `/finish exit` — с выходом) и скил recall. Результат придёт уведомлением в новой сессии.
+В `~/.pi/agent/settings.json` → `packages`: добавить `<chronicle>/integrations/pi` (абсолютный путь или относительно `~/.pi/agent`). Пакет даёт итог сессии при её завершении — выход, `/new`, `/resume`, `/fork` (не `/reload`) — и скил recall. Результат придёт уведомлением в новой сессии (пустая сессия — без уведомления).
 
 ## 5. agy
 
@@ -118,7 +118,7 @@ agy: `agy mcp add …` с теми же адресом и заголовком.
 - Откат (`Esc Esc`) не проверен: брошенные ветки могут не попасть в итог.
 
 **pi**
-- Итог — только по `/finish`; выход без него итога не даёт (вручную — `chronicle finish --agent pi --session <id>`).
+- Итог — по событию pi `session_shutdown`: если процесс pi убит (`kill -9`, обрыв терминала без SIGHUP), итога не будет — вручную `chronicle finish --agent pi --session <id>`.
 
 **agy**
 - Только Linux: pid agy ищется через `/proc`, выход ловит GNU `tail --pid`.
