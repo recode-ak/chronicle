@@ -13,7 +13,7 @@
 - агенты, проверенные вживую: Claude Code 2.1, pi 1.3, agy 1.4.
 
 ```bash
-git clone https://github.com/a-kalki/chronicle.git <chronicle>
+git clone https://github.com/recode-ak/chronicle.git <chronicle>
 cd <chronicle> && bun install && bun run check
 ```
 

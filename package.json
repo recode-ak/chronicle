@@ -5,7 +5,7 @@
   "license": "MIT-0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/a-kalki/chronicle.git"
+    "url": "git+https://github.com/recode-ak/chronicle.git"
   },
   "type": "module",
   "private": true,

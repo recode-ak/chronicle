@@ -35,7 +35,7 @@ chronicle search / show ◀──────────── знания ─
 Нужны Bun, git и Linux (подробности и ограничения — в инструкции).
 
 ```bash
-git clone https://github.com/a-kalki/chronicle.git && cd chronicle
+git clone https://github.com/recode-ak/chronicle.git && cd chronicle
 bun install && bun run check
 ```
 
