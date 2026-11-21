@@ -9,7 +9,10 @@ export const Slug = v.pipe(
 export const Timestamp = v.pipe(v.string(), v.isoTimestamp('ожидается ISO 8601 с зоной'));
 export const Text = (max: number) => v.pipe(v.string(), v.trim(), v.minLength(1), v.maxLength(max));
 
-/** Пределы списков знания: курирование обрезает слитую запись до них */
+/** Пределы полей знания: курирование обрезает ответ LLM до них */
+export const MAX_TITLE = 200;
+export const MAX_CAUSE = 2000;
+export const MAX_FIX = 4000;
 export const MAX_SYMPTOMS = 10;
 export const MAX_TAGS = 10;
 
@@ -17,11 +20,11 @@ export const KnowledgeCandidate = v.object({
   scope: v.picklist(['project', 'global']),
   /** trap — ловушка (симптом → причина → решение); fact — неочевидный факт окружения */
   kind: v.picklist(['trap', 'fact']),
-  title: Text(200),
+  title: Text(MAX_TITLE),
   /** Дословные тексты ошибок — главный ключ поиска */
   symptoms: v.pipe(v.array(Text(1000)), v.maxLength(MAX_SYMPTOMS)),
-  cause: Text(2000),
-  fix: Text(4000),
+  cause: Text(MAX_CAUSE),
+  fix: Text(MAX_FIX),
   tags: v.pipe(v.array(Text(40)), v.maxLength(MAX_TAGS)),
 });
 

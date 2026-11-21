@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'bun:test';
-import { MAX_SYMPTOMS, MAX_TAGS } from '../../contract/common.ts';
+import { MAX_CAUSE, MAX_FIX, MAX_SYMPTOMS, MAX_TAGS, MAX_TITLE } from '../../contract/common.ts';
 import { openStore, type SqliteStore } from '../infra/sqlite-store.ts';
 import { archiveStale, curatePending, MAX_CURATE_ATTEMPTS } from './curate.ts';
 import { type Llm, LlmUnavailableError } from './llm.ts';
@@ -165,6 +165,25 @@ describe('curatePending', () => {
     const merged = store.getEntry(target);
     expect(merged?.symptoms).toEqual(many('s', MAX_SYMPTOMS));
     expect(merged?.tags).toEqual(many('t', MAX_TAGS));
+  });
+
+  it('заголовок, причина и решение длиннее предела — обрезаны по слову с многоточием, а не отказ', async () => {
+    submit(store, [candidate]);
+    const words = (n: number) => Array.from({ length: n }, () => 'слово').join(' ');
+    const res = await curatePending(
+      store,
+      fakeLlm(() => ({
+        action: 'create',
+        reason: 'длинно',
+        entry: { ...candidate, title: words(40), cause: words(400), fix: words(800) },
+      })),
+    );
+    expect(res.created).toBe(1);
+    const entry = store.activeEntries('u7-school')[0];
+    expect(entry?.title.length).toBeLessThanOrEqual(MAX_TITLE);
+    expect(entry?.title.endsWith('слово…')).toBe(true);
+    expect(entry?.cause.length).toBeLessThanOrEqual(MAX_CAUSE);
+    expect(entry?.fix.length).toBeLessThanOrEqual(MAX_FIX);
   });
 
   it(`после ${MAX_CURATE_ATTEMPTS} неудач кандидат больше не уходит в LLM`, async () => {

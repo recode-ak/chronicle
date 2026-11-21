@@ -5,7 +5,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import * as v from 'valibot';
-import { MAX_SYMPTOMS, MAX_TAGS } from '../../contract/common.ts';
+import { MAX_CAUSE, MAX_FIX, MAX_SYMPTOMS, MAX_TAGS, MAX_TITLE } from '../../contract/common.ts';
 import { KnowledgeCandidate } from '../../contract/v1.ts';
 import { similarity, stems } from '../domain/similarity.ts';
 import { entryText } from './knowledge.ts';
@@ -67,17 +67,40 @@ function userPrompt(c: PendingCandidate, similar: KnowledgeEntry[]): string {
 }
 
 /**
- * Слияние с разросшейся записью даёт симптомов или тегов больше предела схемы —
- * без обрезки такой ответ отвергался бы на каждой попытке. Списки ответа
- * очищаются от дублей и обрезаются по пределу (важное LLM ставит первым).
+ * Слияние с разросшейся записью даёт поля длиннее предела схемы — без обрезки
+ * такой ответ отвергался бы на каждой попытке. Списки ответа очищаются от
+ * дублей и обрезаются по пределу (важное LLM ставит первым); заголовок,
+ * причина и решение — по последнему слову с многоточием.
  */
 function fitLimits(answer: unknown): unknown {
   if (typeof answer !== 'object' || answer === null || !('entry' in answer)) return answer;
   const { entry } = answer;
   if (typeof entry !== 'object' || entry === null) return answer;
-  const fit = (list: unknown, max: number) => (Array.isArray(list) ? [...new Set(list)].slice(0, max) : list);
-  const e = entry as { symptoms?: unknown; tags?: unknown };
-  return { ...answer, entry: { ...entry, symptoms: fit(e.symptoms, MAX_SYMPTOMS), tags: fit(e.tags, MAX_TAGS) } };
+  const e = entry as { title?: unknown; symptoms?: unknown; cause?: unknown; fix?: unknown; tags?: unknown };
+  return {
+    ...answer,
+    entry: {
+      ...entry,
+      title: fitText(e.title, MAX_TITLE),
+      symptoms: fitList(e.symptoms, MAX_SYMPTOMS),
+      cause: fitText(e.cause, MAX_CAUSE),
+      fix: fitText(e.fix, MAX_FIX),
+      tags: fitList(e.tags, MAX_TAGS),
+    },
+  };
+}
+
+function fitList(list: unknown, max: number): unknown {
+  return Array.isArray(list) ? [...new Set(list)].slice(0, max) : list;
+}
+
+function fitText(text: unknown, max: number): unknown {
+  if (typeof text !== 'string') return text;
+  const trimmed = text.trim();
+  if (trimmed.length <= max) return text;
+  const head = trimmed.slice(0, max - 1);
+  const space = head.lastIndexOf(' ');
+  return `${(space > max / 2 ? head.slice(0, space) : head).trimEnd()}…`;
 }
 
 async function curateOne(store: Store, llm: Llm, c: PendingCandidate): Promise<keyof CurateResult> {
