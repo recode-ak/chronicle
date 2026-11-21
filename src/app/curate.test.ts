@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from 'bun:test';
+import { MAX_SYMPTOMS, MAX_TAGS } from '../../contract/common.ts';
 import { openStore, type SqliteStore } from '../infra/sqlite-store.ts';
-import { archiveStale, curatePending } from './curate.ts';
-import type { Llm } from './llm.ts';
+import { archiveStale, curatePending, MAX_CURATE_ATTEMPTS } from './curate.ts';
+import { type Llm, LlmUnavailableError } from './llm.ts';
 import { submitReport } from './submit-report.ts';
 
 const school = { remote: 'github.com/nurgeo/u7-school', name: 'u7-school', path: '/school' };
@@ -140,6 +141,50 @@ describe('curatePending', () => {
     expect(res.failed).toBe(2);
     expect(store.pendingCandidates()).toHaveLength(2);
     expect(store.candidate(2)?.lastError).toContain('503');
+  });
+
+  it('merge сверх предела симптомов и тегов — без дублей и обрезано до предела, а не отказ', async () => {
+    submit(store, [candidate]);
+    await curatePending(
+      store,
+      fakeLlm(() => ({ action: 'create', reason: 'новая', entry: candidate })),
+    );
+    const target = store.activeEntries('u7-school')[0]?.id ?? '';
+    submit(store, [{ ...candidate, title: `${candidate.title} снова` }], 's-2');
+    const many = (p: string, n: number) => Array.from({ length: n }, (_, i) => `${p}${i}`);
+    const res = await curatePending(
+      store,
+      fakeLlm(() => ({
+        action: 'merge',
+        targetId: target,
+        reason: 'та же',
+        entry: { ...candidate, symptoms: ['s0', ...many('s', MAX_SYMPTOMS + 2)], tags: many('t', MAX_TAGS + 3) },
+      })),
+    );
+    expect(res.merged).toBe(1);
+    const merged = store.getEntry(target);
+    expect(merged?.symptoms).toEqual(many('s', MAX_SYMPTOMS));
+    expect(merged?.tags).toEqual(many('t', MAX_TAGS));
+  });
+
+  it(`после ${MAX_CURATE_ATTEMPTS} неудач кандидат больше не уходит в LLM`, async () => {
+    submit(store, [candidate]);
+    const llm = fakeLlm(() => ({ action: 'create' }));
+    for (let i = 0; i < MAX_CURATE_ATTEMPTS + 2; i++) await curatePending(store, llm);
+    expect(llm.prompts).toHaveLength(MAX_CURATE_ATTEMPTS);
+    expect(store.candidate(1)?.attempts).toBe(MAX_CURATE_ATTEMPTS);
+  });
+
+  it('провайдер недоступен — проход прерван, попытка не засчитана, остальные не отправлены', async () => {
+    submit(store, [candidate, { ...candidate, title: 'Другое' }]);
+    const llm = fakeLlm(() => {
+      throw new LlmUnavailableError('LLM: HTTP 402 Insufficient Balance');
+    });
+    expect(curatePending(store, llm)).rejects.toBeInstanceOf(LlmUnavailableError);
+    await Bun.sleep(0);
+    expect(llm.prompts).toHaveLength(1);
+    expect(store.candidate(1)?.attempts).toBe(0);
+    expect(store.pendingCandidates()).toHaveLength(2);
   });
 });
 

@@ -5,10 +5,11 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import * as v from 'valibot';
+import { MAX_SYMPTOMS, MAX_TAGS } from '../../contract/common.ts';
 import { KnowledgeCandidate } from '../../contract/v1.ts';
 import { similarity, stems } from '../domain/similarity.ts';
 import { entryText } from './knowledge.ts';
-import type { Llm } from './llm.ts';
+import { type Llm, LlmUnavailableError } from './llm.ts';
 import type { KnowledgeEntry, PendingCandidate, Store } from './store.ts';
 
 const SYSTEM_PROMPT = readFileSync(join(import.meta.dir, '../../prompts/curate.md'), 'utf8');
@@ -65,9 +66,23 @@ function userPrompt(c: PendingCandidate, similar: KnowledgeEntry[]): string {
   return JSON.stringify({ project: c.projectId, candidate, similar: shown }, null, 2);
 }
 
+/**
+ * Слияние с разросшейся записью даёт симптомов или тегов больше предела схемы —
+ * без обрезки такой ответ отвергался бы на каждой попытке. Списки ответа
+ * очищаются от дублей и обрезаются по пределу (важное LLM ставит первым).
+ */
+function fitLimits(answer: unknown): unknown {
+  if (typeof answer !== 'object' || answer === null || !('entry' in answer)) return answer;
+  const { entry } = answer;
+  if (typeof entry !== 'object' || entry === null) return answer;
+  const fit = (list: unknown, max: number) => (Array.isArray(list) ? [...new Set(list)].slice(0, max) : list);
+  const e = entry as { symptoms?: unknown; tags?: unknown };
+  return { ...answer, entry: { ...entry, symptoms: fit(e.symptoms, MAX_SYMPTOMS), tags: fit(e.tags, MAX_TAGS) } };
+}
+
 async function curateOne(store: Store, llm: Llm, c: PendingCandidate): Promise<keyof CurateResult> {
   const similar = similarEntries(store, c);
-  const parsed = v.safeParse(Decision, await llm.completeJson(SYSTEM_PROMPT, userPrompt(c, similar)));
+  const parsed = v.safeParse(Decision, fitLimits(await llm.completeJson(SYSTEM_PROMPT, userPrompt(c, similar))));
   if (!parsed.success) {
     throw new Error(
       `ответ LLM не по схеме: ${parsed.issues.map((i) => `${v.getDotPath(i)}: ${i.message}`).join('; ')}`,
@@ -104,13 +119,25 @@ async function curateOne(store: Store, llm: Llm, c: PendingCandidate): Promise<k
   return 'created';
 }
 
-/** Курирует все pending-кандидаты по очереди: следующий видит записи, созданные предыдущими. */
+/**
+ * Сколько неудачных попыток у кандидата, прежде чем курирование его оставит:
+ * ошибка по вине кандидата (ответ не по схеме, merge мимо похожих) повторяется,
+ * а каждая попытка — платный вызов LLM.
+ */
+export const MAX_CURATE_ATTEMPTS = 3;
+
+/**
+ * Курирует pending-кандидаты по очереди: следующий видит записи, созданные предыдущими.
+ * Кандидаты с `MAX_CURATE_ATTEMPTS` неудачами не берутся. Провайдер недоступен
+ * (`LlmUnavailableError`) — проход прерывается без попытки: остальные упали бы так же.
+ */
 export async function curatePending(store: Store, llm: Llm): Promise<CurateResult> {
   const res: CurateResult = { created: 0, merged: 0, discarded: 0, failed: 0 };
-  for (const c of store.pendingCandidates()) {
+  for (const c of store.pendingCandidates(MAX_CURATE_ATTEMPTS)) {
     try {
       res[await curateOne(store, llm, c)]++;
     } catch (e) {
+      if (e instanceof LlmUnavailableError) throw e;
       store.failCandidate(c.id, e instanceof Error ? e.message : String(e));
       res.failed++;
     }

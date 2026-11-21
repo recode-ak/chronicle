@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import { LlmUnavailableError } from '../app/llm.ts';
 import { createLlm } from './openai-llm.ts';
 
 type Fetch = (url: string, init: RequestInit) => Promise<Response>;
@@ -47,6 +48,22 @@ describe('createLlm', () => {
     expect(failing.completeJson('s', 'u')).rejects.toThrow('503');
     const garbage = createLlm(cfg, { K: 'k' }, capture(ok('не json')).fetch);
     expect(garbage.completeJson('s', 'u')).rejects.toThrow('JSON');
+  });
+
+  it('баланс, ключ, лимит, сбой сервера и сети — LlmUnavailableError; ошибка запроса — обычная', async () => {
+    const cfg = { model: 'deepseek/deepseek-flash', apiKeyEnv: 'K' };
+    for (const status of [401, 402, 403, 429, 500, 503]) {
+      const llm = createLlm(cfg, { K: 'k' }, capture(new Response('x', { status })).fetch);
+      expect(llm.completeJson('s', 'u')).rejects.toBeInstanceOf(LlmUnavailableError);
+    }
+    const network = createLlm(cfg, { K: 'k' }, async () => {
+      throw new TypeError('fetch failed');
+    });
+    expect(network.completeJson('s', 'u')).rejects.toBeInstanceOf(LlmUnavailableError);
+    const badRequest = createLlm(cfg, { K: 'k' }, capture(new Response('too long', { status: 400 })).fetch);
+    const err = await badRequest.completeJson('s', 'u').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(LlmUnavailableError);
   });
 });
 

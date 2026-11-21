@@ -1,5 +1,5 @@
 /** LLM через OpenAI-совместимый Chat Completions API в JSON-режиме. */
-import type { Llm } from '../app/llm.ts';
+import { type Llm, LlmUnavailableError } from '../app/llm.ts';
 
 export interface LlmConfig {
   /** <провайдер>/<модель>, например deepseek/deepseek-flash */
@@ -19,6 +19,9 @@ const PROVIDERS: Record<string, string> = {
 
 const TIMEOUT_MS = 120_000;
 
+/** Статусы, где виноват не запрос, а провайдер: ключ, баланс, доступ, лимит. */
+const UNAVAILABLE_STATUSES = new Set([401, 402, 403, 429]);
+
 export function createLlm(config: LlmConfig, env: Record<string, string | undefined>, fetchFn: Fetch = fetch): Llm {
   const slash = config.model.indexOf('/');
   const provider = slash > 0 ? config.model.slice(0, slash) : '';
@@ -30,7 +33,7 @@ export function createLlm(config: LlmConfig, env: Record<string, string | undefi
 
   return {
     async completeJson(system, user) {
-      const res = await fetchFn(`${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+      const res = await send(fetchFn, `${baseUrl.replace(/\/+$/, '')}/chat/completions`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
         body: JSON.stringify({
@@ -44,7 +47,11 @@ export function createLlm(config: LlmConfig, env: Record<string, string | undefi
         }),
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });
-      if (!res.ok) throw new Error(`LLM: HTTP ${res.status} ${(await res.text()).slice(0, 300)}`);
+      if (!res.ok) {
+        const message = `LLM: HTTP ${res.status} ${(await res.text()).slice(0, 300)}`;
+        const unavailable = UNAVAILABLE_STATUSES.has(res.status) || res.status >= 500;
+        throw unavailable ? new LlmUnavailableError(message) : new Error(message);
+      }
 
       const content = ((await res.json()) as { choices?: { message?: { content?: string } }[] }).choices?.[0]?.message
         ?.content;
@@ -55,4 +62,13 @@ export function createLlm(config: LlmConfig, env: Record<string, string | undefi
       }
     },
   };
+}
+
+/** Сетевой сбой и таймаут — провайдер недоступен, а не ошибка запроса. */
+async function send(fetchFn: Fetch, url: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetchFn(url, init);
+  } catch (e) {
+    throw new LlmUnavailableError(`LLM: нет ответа: ${e instanceof Error ? e.message : String(e)}`);
+  }
 }

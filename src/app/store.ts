@@ -123,11 +123,12 @@ export interface Store {
   /** Действующие (не superseded) сегменты, пересекающие [from, to); person = null — все люди */
   segmentsBetween(from: string, to: string, person: string | null): StoredSegment[];
   projects(): { id: string; name: string }[];
-  pendingCandidates(): PendingCandidate[];
+  /** Кандидаты на курирование; `maxAttempts` — только с меньшим числом попыток */
+  pendingCandidates(maxAttempts?: number): PendingCandidate[];
   candidate(id: number): CandidateState | null;
   /** Решение курирования по кандидату */
   decideCandidate(id: number, status: 'created' | 'merged' | 'discarded', entryId: string | null, note: string): void;
-  /** Неудачная попытка курирования: кандидат остаётся pending */
+  /** Неудачная попытка курирования: кандидат остаётся pending, попытка засчитана */
   failCandidate(id: number, error: string): void;
   updateEntry(id: string, fields: Omit<NewEntry, 'id'>): void;
   addHistory(entryId: string, candidateId: number | null, action: HistoryItem['action'], note: string): void;

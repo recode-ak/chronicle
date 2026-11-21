@@ -351,7 +351,7 @@ export class SqliteStore implements Store {
     return this.db.query<{ id: string; name: string }, []>('SELECT id, name FROM projects ORDER BY id').all();
   }
 
-  pendingCandidates(): PendingCandidate[] {
+  pendingCandidates(maxAttempts = Number.MAX_SAFE_INTEGER): PendingCandidate[] {
     return this.db
       .query<
         {
@@ -366,14 +366,14 @@ export class SqliteStore implements Store {
           fix: string;
           tags: string;
         },
-        []
+        [number]
       >(
         `SELECT c.id, c.segment_id, COALESCE(c.project_id, s.launch_project) AS project_id, c.scope, c.kind, c.title, c.symptoms, c.cause, c.fix, c.tags
          FROM knowledge_candidates c
          JOIN segments g ON g.id = c.segment_id JOIN sessions s ON s.id = g.session_id
-         WHERE c.status = 'pending' ORDER BY c.id`,
+         WHERE c.status = 'pending' AND c.attempts < ? ORDER BY c.id`,
       )
-      .all()
+      .all(maxAttempts)
       .map((r) => ({
         id: r.id,
         segmentId: r.segment_id,
